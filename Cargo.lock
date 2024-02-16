@@ -1378,7 +1378,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "secret-derive-pgp"
+name = "secret2pgp"
 version = "0.1.0"
 dependencies = [
  "anyhow",
