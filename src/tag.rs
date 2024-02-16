@@ -440,8 +440,6 @@ impl<'de> Deserialize<'de> for StoredTag {
 
         if !self_sig.message_processed() {
             return Err(D::Error::custom(anyhow!("Failed to verify self signature")));
-        } else {
-            eprintln!("Successfully verified self signature");
         }
 
         let stored_tag = self_sig.into_helper();

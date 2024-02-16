@@ -1,6 +1,7 @@
 use std::{fs::read_to_string, path::PathBuf};
 
 use anyhow::anyhow;
+use base64ct::{Base64UrlUnpadded, Encoding};
 use chrono::{DateTime, Utc};
 use clap::{Parser, Subcommand};
 
@@ -10,7 +11,15 @@ mod tag;
 
 pub use base64::Base64UrlBytes;
 
-use sequoia_openpgp::serialize::Serialize;
+use sequoia_openpgp::{
+    parse::Parse,
+    serialize::{
+        stream::{Armorer, LiteralWriter, Message},
+        Serialize, SerializeInto,
+    },
+    PacketPile,
+};
+use sha2::{Digest, Sha256};
 use tag::{PrivateTag, StoredTag, Uid};
 
 #[derive(Parser)]
@@ -33,14 +42,17 @@ enum Commands {
     /// Inspect a tag identity with or without secret
     Inspect {
         /// The file containing the JSON serialized tag identity
-        filename: Option<PathBuf>,
+        filename: PathBuf,
     },
     /// Verify a tag identity
     Verify {
-        /// The file containing the JSON serialized tag identity
-        filename: Option<PathBuf>,
         /// The identity provided which should be checked against the identity file
-        identity: String,
+        provieded_identity: String,
+        /// The file containing the JSON serialized tag identity
+        #[arg(long, group = "identity")]
+        filename: Option<PathBuf>,
+        #[arg(group = "identity")]
+        identity_hash: Option<String>,
     },
     /// Derive an OpenPGP identity from the secret part of a tag identity
     Derive {
@@ -123,7 +135,73 @@ fn main() -> anyhow::Result<()> {
                 derive.export(&mut writer)?;
             }
         }
-        _ => unimplemented!(),
+        Commands::Verify {
+            filename,
+            identity_hash,
+            provieded_identity,
+        } => {
+            let expected_hash: [u8; 32] = {
+                match identity_hash {
+                    Some(hash) => Base64UrlUnpadded::decode_vec(&hash)?
+                        .try_into()
+                        .map_err(|v: Vec<u8>| anyhow!("Invalid hash length: {}", v.len()))?,
+                    None => {
+                        filename
+                            .map(|file| {
+                                let s = read_to_string(file)?;
+                                let tag: StoredTag = serde_json::from_str(&s)?;
+                                Ok::<_, anyhow::Error>(tag)
+                            })
+                            .transpose()?
+                            .ok_or(anyhow!("no identity hash provided"))?
+                            .identity
+                            .identity_hash
+                    }
+                }
+            };
+            let decoded: [u8; 32] = Base64UrlUnpadded::decode_vec(&provieded_identity)?
+                .try_into()
+                .map_err(|v: Vec<u8>| anyhow!("Invalid identity length: {}", v.len()))?;
+            let mut hasher = Sha256::new();
+            hasher.update(decoded);
+            let actual_hash: [u8; 32] = hasher.finalize().into();
+            if expected_hash == actual_hash {
+                return Ok(());
+            } else {
+                return Err(anyhow!("Identity verification failed."));
+            }
+        }
+        Commands::Inspect { filename } => {
+            let s = read_to_string(filename)?;
+            let tag: StoredTag =
+                serde_json::from_str(&s).map_err(|e| anyhow!("Invalid tag: {e}"))?;
+
+            let uid = hex::encode(&*tag.identity.uid);
+            let identity_hash = hex::encode(tag.identity.identity_hash);
+
+            let armor_cert = String::from_utf8(tag.pgp_certificate.armored().to_vec()?)?;
+
+            let sig = PacketPile::from_bytes(&tag.pgp_identity_self_signature)?;
+            let mut sink = Vec::new();
+            {
+                let message = Message::new(&mut sink);
+                let mut armorer = Armorer::new(message)
+                    .kind(sequoia_openpgp::armor::Kind::Signature)
+                    .build()?;
+                sig.export(&mut armorer)?;
+                armorer.finalize()?;
+            }
+            let armor_sig = String::from_utf8(sink)?;
+            println!(
+                include_str!("inspect.txt"),
+                &uid,
+                tag.identity.creation_time,
+                &identity_hash,
+                tag.identity.pgp_fingerprint.to_hex(),
+                armor_cert,
+                armor_sig,
+            );
+        }
     }
 
     Ok(())
