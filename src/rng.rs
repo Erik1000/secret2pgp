@@ -25,10 +25,12 @@ impl<'a> SecretSeededHkdfRng<'a> {
         }
     }
 
+    #[cfg(test)]
     pub fn reset(&mut self) {
         self.total_length = 0;
     }
 
+    #[cfg(test)]
     pub fn update_info_reset(&mut self, info: &'a [u8]) {
         self.info = info;
         self.reset();
@@ -67,6 +69,7 @@ impl<'a> CryptoRng for SecretSeededHkdfRng<'a> {}
 
 #[test]
 fn smoke() {
+    use base64ct::{Base64UrlUnpadded, Encoding};
     let seed =
         Base64UrlUnpadded::decode_vec("W_7yr1RIHW0YhaAKUaS56Vp7Vp6HqVTWbm-4xaqsEzI").unwrap();
     let info = b"sign";
