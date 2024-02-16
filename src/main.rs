@@ -14,7 +14,7 @@ pub use base64::Base64UrlBytes;
 use sequoia_openpgp::{
     parse::Parse,
     serialize::{
-        stream::{Armorer, LiteralWriter, Message},
+        stream::{Armorer, Message},
         Serialize, SerializeInto,
     },
     PacketPile,
