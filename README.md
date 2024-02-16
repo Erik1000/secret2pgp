@@ -4,7 +4,7 @@ Derive an OpenPGP certificate with signing (S), authentication (A) and encryptio
 
 ## Goal
 
-The goal was to abuse an ISO-14443A NFC tag to store a cryptographic key and an identifier which can be used to authenticate the tag via a web request.
+The goal was to abuse an [ISO-14443A] NFC tag to store a cryptographic key and an identifier which can be used to authenticate the tag via a web request.
 
 ## Idea
 
