@@ -34,10 +34,10 @@ enum Commands {
     Generate {
         #[arg(value_parser = |s: &'_ str| Uid::from_hex(s))]
         uid: Uid,
-        #[arg(long, default_value_t = true)]
-        output_link: bool,
-        #[arg(long, default_value_t = true)]
-        output_tag: bool,
+        #[arg(long, default_value_t = false)]
+        no_output_link: bool,
+        #[arg(long, default_value_t = false)]
+        no_output_tag: bool,
     },
     /// Inspect a tag identity with or without secret
     Inspect {
@@ -81,16 +81,16 @@ fn main() -> anyhow::Result<()> {
     match cli.command {
         Commands::Generate {
             uid,
-            output_link,
-            output_tag,
+            no_output_link,
+            no_output_tag,
         } => {
             let (tag, link) = PrivateTag::generate(uid);
-            if output_link {
+            if !no_output_link {
                 eprintln!("{link}");
             }
 
             let tag = StoredTag::create(tag)?;
-            if output_tag {
+            if !no_output_tag {
                 println!("{}", serde_json::to_string(&tag)?);
             }
         }
