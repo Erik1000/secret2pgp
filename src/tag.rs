@@ -204,6 +204,7 @@ impl PrivateTag {
         let valid_cert = cert.with_policy(&policy, policy_reference_time)?;
         // new cert with primary key and signing subkey
         let cert = SubkeyBuilder::new(valid_cert, signing_subkey, KeyFlags::empty().set_signing())?
+            .set_signature_creation_time(creation_time)?
             .set_key_expiration_time(expiration_time)?
             .attach_cert()?;
 
