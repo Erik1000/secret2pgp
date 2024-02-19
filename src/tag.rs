@@ -111,12 +111,11 @@ impl PrivateTag {
         })
     }
 
-    pub fn generate(uid: Uid) -> (Self, String) {
+    pub fn generate(uid: Uid, creation_date: DateTime<Utc>) -> (Self, String) {
         let mut identity_key = [0; 32];
         OsRng.fill_bytes(&mut identity_key);
         let mut secret_key = [0; 32];
         OsRng.fill_bytes(&mut secret_key);
-        let creation_date = Utc::now();
 
         let encoded_identity = Base64UrlUnpadded::encode_string(&identity_key);
         let encoded_secret = Base64UrlUnpadded::encode_string(&secret_key);

@@ -34,6 +34,8 @@ enum Commands {
     Generate {
         #[arg(value_parser = |s: &'_ str| Uid::from_hex(s))]
         uid: Uid,
+        /// The datetime for the OpenPGP key identity (time of key generation)
+        creation_time: Option<DateTime<Utc>>,
         #[arg(long, default_value_t = false)]
         no_output_link: bool,
         #[arg(long, default_value_t = false)]
@@ -81,10 +83,17 @@ fn main() -> anyhow::Result<()> {
     match cli.command {
         Commands::Generate {
             uid,
+            creation_time,
             no_output_link,
             no_output_tag,
         } => {
-            let (tag, link) = PrivateTag::generate(uid);
+            let (tag, link) = PrivateTag::generate(
+                uid,
+                creation_time.unwrap_or_else(|| {
+                    eprintln!("Warning: creation_date not set, using default");
+                    DateTime::from_timestamp(0, 0).unwrap()
+                }),
+            );
             if !no_output_link {
                 eprintln!("{link}");
             }
