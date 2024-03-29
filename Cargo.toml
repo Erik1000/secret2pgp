@@ -1,3 +1,6 @@
 [workspace]
 members = ["cli", "client", "lib", "server"]
 resolver = "2"
+
+[profile.release.package.secret2pgp-client]
+opt-level = "s"
