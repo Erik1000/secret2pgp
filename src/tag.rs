@@ -491,13 +491,7 @@ fn generate_x25519_key(
 ) -> anyhow::Result<Key<SecretParts, UnspecifiedRole>> {
     let rng = SecretSeededHkdfRng::new(None, secret, info);
 
-    let mut private = StaticSecret::random_from_rng(rng).to_bytes();
-
-    // x25519-dalek weird behavior: https://gitlab.com/sequoia-pgp/sequoia/-/issues/1087
-    // TODO: probably fixed in >1.18
-    private[0] &= 0b1111_1000;
-    private[31] &= !0b1000_0000;
-    private[31] |= 0b0100_0000;
+    let private = StaticSecret::random_from_rng(rng).to_bytes();
 
     let key = Key4::import_secret_cv25519(
         &private,
