@@ -922,6 +922,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "libsecret2pgp"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "base64ct",
+ "chrono",
+ "ed25519-dalek",
+ "hex",
+ "hkdf",
+ "hmac",
+ "rand_core",
+ "sequoia-openpgp",
+ "serde",
+ "serde_json",
+ "sha2",
+ "x25519-dalek",
+]
+
+[[package]]
 name = "lock_api"
 version = "0.4.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1368,6 +1387,7 @@ dependencies = [
  "hex",
  "hkdf",
  "hmac",
+ "libsecret2pgp",
  "rand_core",
  "sequoia-openpgp",
  "serde",
@@ -1375,6 +1395,14 @@ dependencies = [
  "sha2",
  "x25519-dalek",
 ]
+
+[[package]]
+name = "secret2pgp-client"
+version = "0.1.0"
+
+[[package]]
+name = "secret2pgp-server"
+version = "0.1.0"
 
 [[package]]
 name = "semver"

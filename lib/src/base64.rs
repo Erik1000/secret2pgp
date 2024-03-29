@@ -2,7 +2,7 @@ use base64ct::{Base64UrlUnpadded, Encoding};
 use serde::{de::Error, Deserialize, Deserializer, Serialize};
 
 #[derive(Debug, PartialEq, Eq, Clone, Hash)]
-pub struct Base64UrlBytes(pub(crate) Vec<u8>);
+pub struct Base64UrlBytes(pub Vec<u8>);
 
 impl Serialize for Base64UrlBytes {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>

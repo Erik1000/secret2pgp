@@ -5,12 +5,7 @@ use base64ct::{Base64UrlUnpadded, Encoding};
 use chrono::{DateTime, Utc};
 use clap::{Parser, Subcommand};
 
-mod base64;
-mod rng;
-mod tag;
-
-pub use base64::Base64UrlBytes;
-
+use libsecret2pgp::tag::{PrivateTag, StoredTag, Uid};
 use sequoia_openpgp::{
     parse::Parse,
     serialize::{
@@ -20,7 +15,6 @@ use sequoia_openpgp::{
     PacketPile,
 };
 use sha2::{Digest, Sha256};
-use tag::{PrivateTag, StoredTag, Uid};
 
 #[derive(Parser)]
 struct Cli {
