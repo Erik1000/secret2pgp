@@ -1572,7 +1572,7 @@ dependencies = [
 
 [[package]]
 name = "libsecret2pgp"
-version = "0.1.2"
+version = "0.1.3"
 dependencies = [
  "anyhow",
  "base64ct",
@@ -2427,7 +2427,7 @@ dependencies = [
 
 [[package]]
 name = "secret2pgp"
-version = "0.1.2"
+version = "0.1.3"
 dependencies = [
  "anyhow",
  "base64ct",
@@ -2448,7 +2448,7 @@ dependencies = [
 
 [[package]]
 name = "secret2pgp-client"
-version = "0.1.2"
+version = "0.1.3"
 dependencies = [
  "console_error_panic_hook",
  "console_log",
@@ -2462,7 +2462,7 @@ dependencies = [
 
 [[package]]
 name = "secret2pgp-server"
-version = "0.1.2"
+version = "0.1.3"
 dependencies = [
  "base64ct",
  "either",
