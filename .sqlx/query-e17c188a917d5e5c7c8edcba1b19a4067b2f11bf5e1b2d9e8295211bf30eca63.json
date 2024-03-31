@@ -1,0 +1,34 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT actions.action_id AS \"action_id!\", actions.action AS \"action!\", actions.requirements AS \"requirements!\" FROM active_actions\n            INNER JOIN actions ON active_actions.action_id = actions.action_id\n            WHERE active_actions.tag_uid = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "action_id!",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "action!",
+        "type_info": "Json"
+      },
+      {
+        "ordinal": 2,
+        "name": "requirements!",
+        "type_info": "Json"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Bytea"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "e17c188a917d5e5c7c8edcba1b19a4067b2f11bf5e1b2d9e8295211bf30eca63"
+}

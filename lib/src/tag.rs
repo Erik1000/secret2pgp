@@ -63,15 +63,22 @@ impl Uid {
     }
 }
 
-impl TryFrom<Vec<u8>> for Uid {
+impl TryFrom<&[u8]> for Uid {
     type Error = anyhow::Error;
-    fn try_from(value: Vec<u8>) -> Result<Self, Self::Error> {
+    fn try_from(value: &[u8]) -> Result<Self, Self::Error> {
         Ok(match value.len() {
             4 => Self::Level1(value.try_into().unwrap()),
             7 => Self::Level2(value.try_into().unwrap()),
             10 => Self::Level3(value.try_into().unwrap()),
             _ => return Err(anyhow!("Invalid data length")),
         })
+    }
+}
+
+impl TryFrom<Vec<u8>> for Uid {
+    type Error = anyhow::Error;
+    fn try_from(value: Vec<u8>) -> Result<Self, Self::Error> {
+        Self::try_from(&*value)
     }
 }
 
@@ -83,6 +90,25 @@ impl Deref for Uid {
             Self::Level2(x) => &x[..],
             Uid::Level3(x) => &x[..],
         }
+    }
+}
+
+impl<'de> Deserialize<'de> for Uid {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let r = Base64UrlBytes::deserialize(deserializer)?;
+        Self::try_from(r.0).map_err(D::Error::custom)
+    }
+}
+
+impl Serialize for Uid {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        Base64UrlBytes((*self).to_vec()).serialize(serializer)
     }
 }
 
@@ -293,7 +319,7 @@ impl<'de> Deserialize<'de> for TagIdentity {
     {
         #[derive(Deserialize)]
         struct Repr {
-            uid: Base64UrlBytes,
+            uid: Uid,
             creation_time: String,
             identity_hash: Base64UrlBytes,
             pgp_fingerprint: String,
@@ -301,7 +327,7 @@ impl<'de> Deserialize<'de> for TagIdentity {
 
         let repr = Repr::deserialize(deserializer)?;
         Ok(Self {
-            uid: Uid::try_from(repr.uid.0).map_err(D::Error::custom)?,
+            uid: repr.uid,
             creation_time: DateTime::parse_from_rfc3339(&repr.creation_time)
                 .map_err(D::Error::custom)?
                 .to_utc(),
@@ -322,14 +348,14 @@ impl Serialize for TagIdentity {
         S: serde::Serializer,
     {
         #[derive(Serialize)]
-        struct Repr {
-            uid: Base64UrlBytes,
+        struct Repr<'a> {
+            uid: &'a Uid,
             creation_time: String,
             identity_hash: Base64UrlBytes,
             pgp_fingerprint: String,
         }
         let repr = Repr {
-            uid: Base64UrlBytes((*self.uid).into()),
+            uid: &self.uid,
             creation_time: self.creation_time.to_rfc3339(),
             identity_hash: Base64UrlBytes(self.identity_hash.into()),
             pgp_fingerprint: self.pgp_fingerprint.to_hex(),
@@ -338,7 +364,9 @@ impl Serialize for TagIdentity {
     }
 }
 
+#[derive(Debug, sqlx::FromRow)]
 pub struct StoredTag {
+    #[sqlx(flatten)]
     pub identity: TagIdentity,
     pub pgp_certificate: Cert,
     /// pgp signature over `identity` made by the signing key of the derived pgp cert
@@ -552,4 +580,28 @@ fn decode_b64urlsafe<const N: usize>(input: &str) -> anyhow::Result<[u8; N]> {
     // must use Vec otherwise inputs that are too short are not detected
     let decoded = Base64UrlUnpadded::decode_vec(input)?;
     <[u8; N]>::try_from(decoded).map_err(|_| anyhow!("invalid length for input data"))
+}
+
+mod _sqlx {
+    use sequoia_openpgp::{parse::Parse, Cert, Fingerprint};
+    use sqlx::{postgres::PgRow, FromRow, Row};
+
+    use super::{StoredTag, TagIdentity, Uid};
+
+    impl FromRow<'_, PgRow> for StoredTag {
+        fn from_row(row: &'_ PgRow) -> Result<Self, sqlx::Error> {
+            Ok(Self {
+                identity: TagIdentity {
+                    creation_time: row.try_get("creation_time")?,
+                    identity_hash: row.try_get("identity_hash")?,
+                    pgp_fingerprint: Fingerprint::from_bytes(row.try_get("pgp_fingerprint")?),
+                    uid: Uid::try_from(row.try_get::<Vec<u8>, _>("uid")?)
+                        .map_err(|e| sqlx::Error::Decode(e.into()))?,
+                },
+                pgp_certificate: Cert::from_bytes(&row.try_get::<Vec<u8>, _>("pgp_certificate")?)
+                    .map_err(|e| sqlx::Error::Decode(e.into()))?,
+                pgp_identity_self_signature: row.try_get("pgp_identity_self_signature")?,
+            })
+        }
+    }
 }

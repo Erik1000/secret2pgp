@@ -1,0 +1,6 @@
+/target
+Dockerfile
+Rocket.toml
+docker-compose.yml
+.env
+**/target

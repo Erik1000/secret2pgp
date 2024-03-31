@@ -1586,6 +1586,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2",
+ "sqlx",
  "x25519-dalek",
 ]
 
@@ -2470,6 +2471,7 @@ dependencies = [
  "log",
  "pretty_env_logger",
  "rocket",
+ "sequoia-openpgp",
  "serde",
  "serde_json",
  "serde_with",

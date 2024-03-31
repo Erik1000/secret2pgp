@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO access_log (address, user_agent, identity_hash)\n        VALUES ($1, $2, $3)\n    ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Inet",
+        "Text",
+        {
+          "Custom": {
+            "name": "sha256_hash",
+            "kind": {
+              "Domain": "Bytea"
+            }
+          }
+        }
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "5d74a8141f6a94c2e34301e0c87e4952d824748fe5c4e3c245849e53650ce6d4"
+}

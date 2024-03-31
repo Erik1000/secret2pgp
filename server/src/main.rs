@@ -1,12 +1,19 @@
-use eyre::eyre;
-use libsecret2pgp::tag::Uid;
-use log::info;
+use base64ct::{Base64UrlUnpadded, Encoding};
+use eyre::{eyre, Context};
+use libsecret2pgp::{
+    tag::{StoredTag, Uid},
+    Base64UrlBytes,
+};
+
 use rocket::{
     http::{uri::Reference, Status},
+    outcome::{try_outcome, IntoOutcome},
     request::{FromRequest, Outcome},
     response::{status::BadRequest, Redirect, Responder},
-    Request, Response, Rocket, State,
+    serde::json::Json,
+    Request, Rocket, State,
 };
+use sequoia_openpgp::serialize::SerializeInto;
 use serde::{Deserialize, Serialize};
 use serde_with::serde_as;
 use serde_with::DisplayFromStr;
@@ -42,8 +49,12 @@ async fn main() -> eyre::Result<()> {
     sqlx::migrate!("../migrations/").run(&pool).await?;
 
     rocket
-        .mount("/v1/t/", routes![open])
+        .mount(
+            "/v1/t/",
+            routes![open_tag, add_tag, list_tags, set_redirect, delete_tag],
+        )
         .manage(pool)
+        .manage(config)
         .launch()
         .await?;
 
@@ -53,11 +64,53 @@ async fn main() -> eyre::Result<()> {
 #[derive(Debug, Deserialize)]
 pub struct Config {
     database_url: String,
+    authorization_token_hash: Base64UrlBytes,
 }
 
 type Result<T, E = rocket::response::Debug<eyre::Error>> = std::result::Result<T, E>;
 
 pub struct UserAgent<'r>(&'r str);
+
+pub struct Authenticator;
+
+#[rocket::async_trait]
+impl<'r> FromRequest<'r> for Authenticator {
+    type Error = eyre::Error;
+
+    async fn from_request(req: &'r Request<'_>) -> Outcome<Self, Self::Error> {
+        let header = try_outcome!(req
+            .headers()
+            .get_one("Authorization")
+            .ok_or(eyre!("missing `Authorization` header"))
+            .or_error(Status::Unauthorized));
+
+        let token = try_outcome!(header
+            .split_once("Bearer")
+            .ok_or(eyre!("invalid `Authorization` header, expected `Bearer`"))
+            .or_error(Status::Unauthorized))
+        .1
+        .trim();
+
+        let token = try_outcome!(Base64UrlUnpadded::decode_vec(token)
+            .map_err(|e| eyre!("invalid `Authorization` token: {e}"))
+            .or_error(Status::Unauthorized));
+
+        let mut hasher = Sha256::new();
+        hasher.update(token);
+        let hash = hasher.finalize();
+
+        let config = try_outcome!(req
+            .rocket()
+            .state::<Config>()
+            .ok_or(eyre!("missing `Config` state"))
+            .or_error(Status::InternalServerError));
+
+        match *hash == config.authorization_token_hash.0 {
+            true => Outcome::Success(Self),
+            false => Outcome::Error((Status::Unauthorized, eyre!("invalid `Authorization` token"))),
+        }
+    }
+}
 
 #[rocket::async_trait]
 impl<'r> FromRequest<'r> for UserAgent<'r> {
@@ -71,7 +124,7 @@ impl<'r> FromRequest<'r> for UserAgent<'r> {
 }
 
 #[get("/open?<i>")]
-async fn open(
+async fn open_tag(
     ip_addr: IpAddr,
     user_agent: Option<UserAgent<'_>>,
     i: &str,
@@ -127,7 +180,6 @@ async fn open(
             let (action, _requirements) = sqlx::query!(r#"SELECT actions.action_id AS "action_id!", actions.action AS "action!", actions.requirements AS "requirements!" FROM active_actions
             INNER JOIN actions ON active_actions.action_id = actions.action_id
             WHERE active_actions.tag_uid = $1"#, &*uid).try_map(|record| {
-                info!("{record:#?}");
                 let action: ActionRepr = serde_json::from_value(record.action).map_err(|_| io::Error::from(io::ErrorKind::InvalidData))?;
                 let action = Action::Redirect(match action {
                     ActionRepr::Redirect { to } => Redirect::to(to.to_string())
@@ -153,6 +205,156 @@ async fn open(
     }
 }
 
+#[post("/add", data = "<tag>")]
+async fn add_tag(
+    _auth: Authenticator,
+    pool: &State<PgPool>,
+    tag: Json<StoredTag>,
+) -> Result<(Status, &'static str)> {
+    let tag = &*tag;
+    let cert = tag.pgp_certificate.export_to_vec().map_err(|e| eyre!(e))?;
+    match sqlx::query!(
+        "INSERT INTO tags (
+        uid, 
+        creation_time, 
+        identity_hash, 
+        pgp_fingerprint, 
+        pgp_certificate, 
+        pgp_identity_self_signature) 
+        VALUES ($1::bytea, $2, $3::bytea, $4::bytea, $5, $6)",
+        &*tag.identity.uid,
+        tag.identity.creation_time,
+        &tag.identity.identity_hash,
+        tag.identity.pgp_fingerprint.as_bytes(),
+        &cert,
+        tag.pgp_identity_self_signature,
+    )
+    .execute(pool.inner())
+    .await
+    {
+        Ok(_) => Ok((Status::Ok, "tag created")),
+        Err(e) => match e.as_database_error() {
+            Some(e) if e.is_unique_violation() => Ok((Status::Conflict, "this tag already exists")),
+            _ => Err(eyre!("insert tag failed: {e}").into()),
+        },
+    }
+}
+
+#[derive(Deserialize)]
+struct DeleteTag {
+    tag_uid: Uid,
+}
+
+#[post("/delete", data = "<tag>")]
+async fn delete_tag(
+    _auth: Authenticator,
+    pool: &State<PgPool>,
+    tag: Json<DeleteTag>,
+) -> Result<(Status, &'static str)> {
+    sqlx::query!(
+        "DELETE FROM active_actions WHERE tag_uid = $1",
+        &*tag.tag_uid
+    )
+    .execute(pool.inner())
+    .await
+    .context("failed to delete active actions for tag")?;
+    let deleted = sqlx::query!(
+        r#"
+    DELETE FROM tags WHERE uid = $1;
+    "#,
+        &*tag.tag_uid
+    )
+    .execute(pool.inner())
+    .await
+    .context("failed to delete tag")?
+    .rows_affected()
+        == 1;
+    Ok(match deleted {
+        true => (Status::Ok, "tag deleted"),
+        false => (Status::NotFound, "tag not found"),
+    })
+}
+
+#[get("/list")]
+async fn list_tags(_auth: Authenticator, pool: &State<PgPool>) -> Result<Json<Vec<StoredTag>>> {
+    // sadly, query_as! does not use FromRow
+    // see <https://github.com/launchbadge/sqlx/issues/514>
+    // because of that, use the function instead of macro
+    let tags: Vec<StoredTag> = sqlx::query_as(
+        "SELECT 
+    uid, 
+    creation_time, 
+    identity_hash, 
+    pgp_fingerprint, 
+    pgp_certificate, 
+    pgp_identity_self_signature 
+    FROM tags 
+    -- there should never be more than 1000 tags
+    LIMIT 1000",
+    )
+    .fetch_all(pool.inner())
+    .await
+    .map_err(|e| eyre!("cannot fetch tags: {e}"))?;
+    Ok(Json(tags))
+}
+
+#[derive(Deserialize)]
+struct RedirectLink {
+    /// The link the server should redirect to
+    link: String,
+    /// Uid of the tag (can be fetched from /list)
+    tag_uid: Uid,
+}
+#[post("/set/redirect", data = "<link>")]
+async fn set_redirect(
+    _auth: Authenticator,
+    pool: &State<PgPool>,
+    link: Json<RedirectLink>,
+) -> Result<&'static str> {
+    let action = ActionRepr::Redirect {
+        to: Cow::Borrowed(&link.link),
+    };
+    let action = serde_json::to_value(action).map_err(|e| eyre!("cannot serialize action: {e}"))?;
+
+    let action_id = sqlx::query!(
+        "INSERT INTO actions(action)
+    VALUES ($1)
+    RETURNING action_id",
+        action
+    )
+    .fetch_one(pool.inner())
+    .await
+    .map_err(|e| eyre!("failed to insert action: {e}"))?
+    .action_id;
+
+    // simply overwrite active action since currently only one active action is supported
+    let overwritten = sqlx::query!(
+        "DELETE FROM active_actions WHERE tag_uid = $1",
+        &*link.tag_uid
+    )
+    .execute(pool.inner())
+    .await
+    .map_err(|e| eyre!(e))?
+    .rows_affected()
+        == 1;
+
+    sqlx::query!(
+        "INSERT INTO active_actions (
+        tag_uid, 
+        action_id
+    ) VALUES ($1::bytea, $2)",
+        &*link.tag_uid,
+        action_id
+    )
+    .execute(pool.inner())
+    .await
+    .map_err(|e| eyre!("cannot update active action: {e}"))?;
+
+    match overwritten {
+        true => Ok("updated active action"),
+        false => Ok("installed first active action"),
+    }
+}
 #[derive(Debug, Responder)]
 pub enum Action {
     Redirect(Redirect),
