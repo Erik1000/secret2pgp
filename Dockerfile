@@ -15,7 +15,7 @@ COPY . .
 ARG SQLX_OFFLINE=true
 RUN cargo build --release -p secret2pgp-server
 
-FROM debian:buster-slim AS runtime
+FROM debian:bookworm-slim AS runtime
 WORKDIR /app
 COPY --from=builder /app/target/release/secret2pgp-server /usr/local/bin
 ENTRYPOINT [ "/usr/local/bin/secret2pgp-server" ]
