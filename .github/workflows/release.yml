@@ -45,6 +45,10 @@ jobs:
             #   with:
             #       crate: git-cliff
             #       version: latest
+            - name: set git author
+              run: |
+                  git config --local user.name 'Github Action'
+                  git config --local user.email action@github.com
             - name: install cargo-release
               uses: baptiste0928/cargo-install@v1
               with:
