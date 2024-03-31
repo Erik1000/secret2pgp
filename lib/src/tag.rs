@@ -1,4 +1,8 @@
-use std::{io::Write, ops::Deref, time::SystemTime};
+use std::{
+    io::{self, Write},
+    ops::Deref,
+    time::SystemTime,
+};
 
 use anyhow::anyhow;
 use base64ct::{Base64UrlUnpadded, Encoding};
@@ -13,7 +17,7 @@ use sequoia_openpgp::{
         Key, UserID,
     },
     parse::{
-        stream::{VerificationHelper, VerifierBuilder},
+        stream::{MessageLayer, VerificationHelper, VerifierBuilder},
         Parse,
     },
     policy::StandardPolicy,
@@ -401,9 +405,30 @@ impl VerificationHelper for StoredTag {
     }
     fn check(
         &mut self,
-        _structure: sequoia_openpgp::parse::stream::MessageStructure,
+        structure: sequoia_openpgp::parse::stream::MessageStructure,
     ) -> sequoia_openpgp::Result<()> {
-        Ok(())
+        let mut good = false;
+
+        for (i, layer) in structure.into_iter().enumerate() {
+            match (i, layer) {
+                (0, MessageLayer::SignatureGroup { results }) => {
+                    for result in results {
+                        match result {
+                            Ok(_) => {
+                                good = true;
+                            }
+                            Err(e) => return Err(anyhow!("invalid signature: {e}")),
+                        }
+                    }
+                }
+                _ => return Err(anyhow!("Unexpected message structure")),
+            }
+        }
+
+        match good {
+            true => Ok(()),
+            false => Err(anyhow!("Signature verification failed")),
+        }
     }
 }
 
@@ -430,19 +455,35 @@ impl<'de> Deserialize<'de> for StoredTag {
             pgp_identity_self_signature: repr.pgp_identity_self_signature.0.clone(),
         };
 
+        let mut payload = Vec::new();
+        let expected_payload = serde_json::to_vec(&stored_tag.identity).map_err(|e| {
+            D::Error::custom(anyhow!(
+                "cannot create expected self signature payload: {e}"
+            ))
+        })?;
+
         // verify self signature
-        let self_sig = VerifierBuilder::from_bytes(&repr.pgp_identity_self_signature.0)
-            .map_err(|e| D::Error::custom(anyhow!("Cannot deserialize pgp self signature: {e}")))?;
         let policy = StandardPolicy::default();
-        let self_sig = self_sig
+        let mut verifier = VerifierBuilder::from_bytes(&repr.pgp_identity_self_signature.0)
+            .map_err(|e| D::Error::custom(anyhow!("Cannot deserialize pgp self signature: {e}")))?
             .with_policy(&policy, None, stored_tag)
             .map_err(|e| D::Error::custom(anyhow!("Cannot verify self signature: {e}")))?;
 
-        if !self_sig.message_processed() {
+        // read and verify that there is a valid siganture for the payload
+        io::copy(&mut verifier, &mut payload).unwrap();
+
+        if !verifier.message_processed() {
             return Err(D::Error::custom(anyhow!("Failed to verify self signature")));
         }
 
-        let stored_tag = self_sig.into_helper();
+        // enforce that the signature payload is actually the tag identity not something completely different
+        if payload != expected_payload {
+            return Err(D::Error::custom(anyhow!(
+                "invalid self signature payload: payload differs from expected payload"
+            )));
+        }
+
+        let stored_tag = verifier.into_helper();
         Ok(stored_tag)
     }
 }
