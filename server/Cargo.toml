@@ -31,3 +31,4 @@ sequoia-openpgp = { version = ">=1.19", default-features = false, features = [
     "allow-variable-time-crypto",
     "allow-experimental-crypto",
 ] }
+url = { version = "2.5.0", features = ["serde"] }

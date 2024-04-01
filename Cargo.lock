@@ -2477,6 +2477,7 @@ dependencies = [
  "serde_with",
  "sha2",
  "sqlx",
+ "url",
 ]
 
 [[package]]
@@ -3403,6 +3404,7 @@ dependencies = [
  "form_urlencoded",
  "idna",
  "percent-encoding",
+ "serde",
 ]
 
 [[package]]

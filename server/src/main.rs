@@ -24,6 +24,7 @@ use sqlx::{
     PgPool,
 };
 use std::{borrow::Cow, collections::HashSet, io, net::IpAddr};
+use url::Url;
 
 #[allow(clippy::declare_interior_mutable_const)]
 pub const FORBIDDEN_REDIRECT: Reference<'static> =
@@ -301,18 +302,31 @@ async fn list_tags(_auth: Authenticator, pool: &State<PgPool>) -> Result<Json<Ve
 #[derive(Deserialize)]
 struct RedirectLink {
     /// The link the server should redirect to
-    link: String,
+    link: Url,
     /// Uid of the tag (can be fetched from /list)
     tag_uid: Uid,
+    #[serde(default)]
+    keep_secret_key: bool,
 }
-#[post("/set/redirect", data = "<link>")]
+#[post("/set/redirect", data = "<data>")]
 async fn set_redirect(
     _auth: Authenticator,
     pool: &State<PgPool>,
-    link: Json<RedirectLink>,
+    data: Json<RedirectLink>,
 ) -> Result<&'static str> {
+    let mut link = data.link.clone();
+    if !data.keep_secret_key {
+        // the browser will keep the url fragment unless we explicitly set one
+        link.set_fragment(Some("#s="));
+    }
+
+    let link = link.to_string();
+    if !data.keep_secret_key {
+        assert!(link.ends_with("#s="), "must remove secret")
+    }
+
     let action = ActionRepr::Redirect {
-        to: Cow::Borrowed(&link.link),
+        to: Cow::Borrowed(&link),
     };
     let action = serde_json::to_value(action).map_err(|e| eyre!("cannot serialize action: {e}"))?;
 
@@ -330,7 +344,7 @@ async fn set_redirect(
     // simply overwrite active action since currently only one active action is supported
     let overwritten = sqlx::query!(
         "DELETE FROM active_actions WHERE tag_uid = $1",
-        &*link.tag_uid
+        &*data.tag_uid
     )
     .execute(pool.inner())
     .await
@@ -343,7 +357,7 @@ async fn set_redirect(
         tag_uid, 
         action_id
     ) VALUES ($1::bytea, $2)",
-        &*link.tag_uid,
+        &*data.tag_uid,
         action_id
     )
     .execute(pool.inner())
