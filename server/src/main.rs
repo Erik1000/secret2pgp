@@ -5,6 +5,7 @@ use libsecret2pgp::{
     Base64UrlBytes,
 };
 
+use log::warn;
 use rocket::{
     http::{uri::Reference, Status},
     outcome::{try_outcome, IntoOutcome},
@@ -315,14 +316,18 @@ async fn set_redirect(
     data: Json<RedirectLink>,
 ) -> Result<&'static str> {
     let mut link = data.link.clone();
-    if !data.keep_secret_key {
+    // overwrite fragment if the link itself does not contain one by itself
+    if link.fragment().is_none() && !data.keep_secret_key {
         // the browser will keep the url fragment unless we explicitly set one
-        link.set_fragment(Some("#s="));
+        link.set_fragment(Some("s="));
     }
 
     let link = link.to_string();
-    if !data.keep_secret_key {
-        assert!(link.ends_with("#s="), "must remove secret")
+
+    // ensure the link is valid for Reference, because the `url` and rocket seems to differ in validation...
+    if let Err(e) = Reference::parse(&link) {
+        warn!("a link was parsed successful by the `url` crate but not rocket: `{link}`");
+        return Err(eyre!("invalid link: {e}").into());
     }
 
     let action = ActionRepr::Redirect {
