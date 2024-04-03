@@ -5,13 +5,18 @@ use libsecret2pgp::{
     Base64UrlBytes,
 };
 
-use log::warn;
+use log::{debug, warn};
+use push::TagEvent;
 use rocket::{
     http::{uri::Reference, Status},
     outcome::{try_outcome, IntoOutcome},
     request::{FromRequest, Outcome},
     response::{status::BadRequest, Redirect, Responder},
     serde::json::Json,
+    tokio::{
+        spawn,
+        sync::mpsc::{self, Sender},
+    },
     Request, Rocket, State,
 };
 use sequoia_openpgp::serialize::SerializeInto;
@@ -26,6 +31,8 @@ use sqlx::{
 };
 use std::{borrow::Cow, collections::HashSet, io, net::IpAddr};
 use url::Url;
+
+mod push;
 
 #[allow(clippy::declare_interior_mutable_const)]
 pub const FORBIDDEN_REDIRECT: Reference<'static> =
@@ -50,23 +57,45 @@ async fn main() -> eyre::Result<()> {
 
     sqlx::migrate!("../migrations/").run(&pool).await?;
 
+    let (sender, recv) = mpsc::channel::<TagEvent>(1);
+
+    let client = reqwest::Client::new();
+    let config1 = config.clone();
+
+    debug!("spawning event listener");
+    spawn(async move {
+        push::listen_for_events(
+            client,
+            recv,
+            config.pushover_user.clone(),
+            config.pushover_device.clone(),
+            config.pushover_api_key.clone(),
+        )
+        .await
+    });
+
+    debug!("lauching rocket...");
     rocket
         .mount(
             "/v1/t/",
             routes![open_tag, add_tag, list_tags, set_redirect, delete_tag],
         )
         .manage(pool)
-        .manage(config)
+        .manage(config1)
+        .manage(sender)
         .launch()
         .await?;
 
     Ok(())
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Clone)]
 pub struct Config {
     database_url: String,
     authorization_token_hash: Base64UrlBytes,
+    pushover_api_key: String,
+    pushover_user: String,
+    pushover_device: String,
 }
 
 type Result<T, E = rocket::response::Debug<eyre::Error>> = std::result::Result<T, E>;
@@ -131,6 +160,7 @@ async fn open_tag(
     user_agent: Option<UserAgent<'_>>,
     i: &str,
     pool: &State<PgPool>,
+    sender: &State<Sender<TagEvent>>,
 ) -> Result<Result<Redirect, BadRequest<&'static str>>> {
     use base64ct::Encoding;
 
@@ -194,7 +224,14 @@ async fn open_tag(
 
             let action = action.unwrap_or(Action::Redirect(Redirect::to(DEFAULT_REDIRECT)));
             let Action::Redirect(redirect) = action;
-
+            let meta = push::UserAgentMeta {
+                ip_addr,
+                user_agent: user_agent.map(|f| f.to_owned()),
+            };
+            sender
+                .send(push::TagEvent::OpenSuccess(meta))
+                .await
+                .expect("recv not dropped");
             Ok(Ok(redirect))
         }
         None => {
@@ -202,6 +239,14 @@ async fn open_tag(
                 "Failed to authenticate tag with identity_hash `{:x}`",
                 identity_hash
             );
+            let meta = push::UserAgentMeta {
+                ip_addr,
+                user_agent: user_agent.map(|f| f.to_owned()),
+            };
+            sender
+                .send(push::TagEvent::OpenFailed(meta))
+                .await
+                .expect("recv not dropped");
             Ok(Ok(Redirect::to(FORBIDDEN_REDIRECT)))
         }
     }
