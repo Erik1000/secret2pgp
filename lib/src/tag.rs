@@ -277,7 +277,7 @@ impl PrivateTag {
         let user_id_binding = user_id.bind(&mut primary_keypair, &cert, user_id_binding_builder)?;
 
         let (cert, changed) =
-            cert.insert_packets2::<[Packet; 2]>([user_id.into(), user_id_binding.into()])?;
+            cert.insert_packets::<[Packet; 2]>([user_id.into(), user_id_binding.into()])?;
         assert!(changed, "UserID should have changed the certificate");
 
         Ok(cert)
@@ -399,7 +399,7 @@ impl StoredTag {
 
             let sig_builder = SignatureBuilder::new(SignatureType::Binary);
 
-            let message = Signer::with_template(message, keypair, sig_builder)
+            let message = Signer::with_template(message, keypair, sig_builder)?
                 .hash_algo(HashAlgorithm::SHA256)?
                 .creation_time(private.creation_date)
                 .build()?;
@@ -424,7 +424,7 @@ impl VerificationHelper for StoredTag {
         if self
             .pgp_certificate
             .keys()
-            .any(|k| ids.contains(&k.key_handle()))
+            .any(|k| ids.contains(&k.key().key_handle()))
         {
             Ok(vec![self.pgp_certificate.clone()])
         } else {
@@ -594,7 +594,8 @@ mod _sqlx {
                 identity: TagIdentity {
                     creation_time: row.try_get("creation_time")?,
                     identity_hash: row.try_get("identity_hash")?,
-                    pgp_fingerprint: Fingerprint::from_bytes(row.try_get("pgp_fingerprint")?),
+                    pgp_fingerprint: Fingerprint::from_bytes(4, row.try_get("pgp_fingerprint")?)
+                        .map_err(|e| sqlx::Error::Decode(e.into()))?,
                     uid: Uid::try_from(row.try_get::<Vec<u8>, _>("uid")?)
                         .map_err(|e| sqlx::Error::Decode(e.into()))?,
                 },

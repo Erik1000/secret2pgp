@@ -15,7 +15,7 @@ ed25519-dalek = { version = "2.1.1", features = ["rand_core"] }
 x25519-dalek = { version = "2.0.1", features = ["static_secrets"] }
 hmac = "0.12.1"
 
-sequoia-openpgp = { version = ">=1.19", default-features = false, features = [
+sequoia-openpgp = { version = "2", default-features = false, features = [
     "crypto-rust",
     "allow-variable-time-crypto",
     "allow-experimental-crypto",
