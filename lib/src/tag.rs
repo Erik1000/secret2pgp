@@ -373,11 +373,15 @@ pub struct StoredTag {
     ///
     /// Contains multiple pgp packets
     pub pgp_identity_self_signature: Vec<u8>,
+    pub server_friendly_name: Option<String>,
 }
 
 impl StoredTag {
     /// Create a stored tag discarding secret parts of [`PrivateTag`] afterwards
-    pub fn create(private: PrivateTag) -> anyhow::Result<Self> {
+    pub fn create(
+        private: PrivateTag,
+        server_friendly_name: Option<String>,
+    ) -> anyhow::Result<Self> {
         let policy = StandardPolicy::at(private.creation_date);
         let cert = private.derive_pgp_certificate()?;
         let valid_cert = cert.with_policy(&policy, Some(private.creation_date.into()))?;
@@ -412,6 +416,7 @@ impl StoredTag {
             identity: private.try_into()?,
             pgp_certificate: cert,
             pgp_identity_self_signature: sink,
+            server_friendly_name,
         })
     }
 }
@@ -470,7 +475,9 @@ impl<'de> Deserialize<'de> for StoredTag {
             identity: TagIdentity,
             pgp_certificate: Base64UrlBytes,
             pgp_identity_self_signature: Base64UrlBytes,
+            server_friendly_name: Option<String>,
         }
+
         let repr = Repr::deserialize(deserializer)?;
 
         let identity = repr.identity;
@@ -481,6 +488,7 @@ impl<'de> Deserialize<'de> for StoredTag {
             identity,
             pgp_certificate,
             pgp_identity_self_signature: repr.pgp_identity_self_signature.0.clone(),
+            server_friendly_name: repr.server_friendly_name,
         };
 
         let mut payload = Vec::new();
@@ -602,6 +610,7 @@ mod _sqlx {
                 pgp_certificate: Cert::from_bytes(&row.try_get::<Vec<u8>, _>("pgp_certificate")?)
                     .map_err(|e| sqlx::Error::Decode(e.into()))?,
                 pgp_identity_self_signature: row.try_get("pgp_identity_self_signature")?,
+                server_friendly_name: row.try_get("server_friendly_name")?,
             })
         }
     }

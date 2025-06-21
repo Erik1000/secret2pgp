@@ -334,7 +334,8 @@ async fn list_tags(_auth: Authenticator, pool: &State<PgPool>) -> Result<Json<Ve
     identity_hash, 
     pgp_fingerprint, 
     pgp_certificate, 
-    pgp_identity_self_signature 
+    pgp_identity_self_signature,
+    server_friendly_name
     FROM tags 
     -- there should never be more than 1000 tags
     LIMIT 1000",

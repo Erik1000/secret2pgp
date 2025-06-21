@@ -34,6 +34,7 @@ enum Commands {
         no_output_link: bool,
         #[arg(long, default_value_t = false)]
         no_output_tag: bool,
+        server_friendly_name: Option<String>,
     },
     /// Inspect a tag identity with or without secret
     Inspect {
@@ -80,6 +81,7 @@ fn main() -> anyhow::Result<()> {
             creation_time,
             no_output_link,
             no_output_tag,
+            server_friendly_name,
         } => {
             let (tag, link) = PrivateTag::generate(
                 uid,
@@ -92,7 +94,7 @@ fn main() -> anyhow::Result<()> {
                 eprintln!("{link}");
             }
 
-            let tag = StoredTag::create(tag)?;
+            let tag = StoredTag::create(tag, server_friendly_name)?;
             if !no_output_tag {
                 println!("{}", serde_json::to_string(&tag)?);
             }

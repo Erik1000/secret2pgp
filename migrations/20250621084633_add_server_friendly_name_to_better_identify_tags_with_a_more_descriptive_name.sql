@@ -1,0 +1,1 @@
+ALTER TABLE tags ADD COLUMN "server_friendly_name" TEXT DEFAULT NULL;
